@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Platformer Kaland</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #200606 0%, #4d0e0e 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+        
+        #gameContainer {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+        
+        canvas {
+            border: 3px solid #fff;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        
+        #ui {
+            color: white;
+            margin-bottom: 10px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        #controls {
+            color: white;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        
+        .game-over, .level-complete {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+        }
+        
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="ui">
+            <span>Szint: <span id="level">1</span></span> | 
+            <span>Érmék: <span id="coins">0</span>/5</span> | 
+            <span>Életek: <span id="lives">3</span></span>
+        </div>
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+        <div id="controls">
+            Irányítás: A/D vagy Bal/Jobb nyíl - mozgás, SPACE - ugrás
+        </div>
+        
+        <div id="gameOver" class="game-over">
+            <h2>Játék Vége!</h2>
+            <p>Elfogytak az életek!</p>
+            <button onclick="restartGame()">Újrakezd</button>
+        </div>
+        
+        <div id="levelComplete" class="level-complete">
+            <h2>Szint Teljesítve!</h2>
+            <p>Gyűjtsd össze az összes érmét a következő szinthez!</p>
+            <button onclick="nextLevel()">Következő Szint</button>
+        </div>
+        
+        <div id="gameComplete" class="level-complete">
+            <h2>Gratulálok!</h2>
+            <p>Teljesítetted mind az 5 szintet!</p>
+            <button onclick="restartGame()">Játék Újra</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Játék állapot
+        let gameState = {
+            level: 1,
+            coins: 0,
+            lives: 3,
+            coinsNeeded: 5,
+            gameRunning: true
+        };
+        
+        // Játékos
+        const player = {
+            x: 50,
+            y: 265,
+            width: 20,
+            height: 35,
+            vx: 0,
+            vy: 0,
+            speed: 1,
+            maxSpeed: 4.5,
+            jumpPower: 13,
+            onGround: false,
+            canJump: true,
+            jumpCooldown: 0,
+            color: '#4CAF50',
+            direction: 1
+        };
+        
+        // Pályák definiálása
+        const levels = [
+            {
+                platforms: [
+                    {x: 0, y: 370, width: 800, height: 30},
+                    {x: 200, y: 300, width: 100, height: 20},
+                    {x: 400, y: 250, width: 100, height: 20},
+                    {x: 600, y: 200, width: 100, height: 20}
+                ],
+                coins: [
+                    {x: 230, y: 270, collected: false},
+                    {x: 430, y: 220, collected: false},
+                    {x: 630, y: 170, collected: false},
+                    {x: 100, y: 340, collected: false},
+                    {x: 700, y: 340, collected: false}
+                ],
+                enemies: [
+                    {x: 300, y: 340, width: 25, height: 25, vx: 2, minX: 250, maxX: 500},
+                    {x: 500, y: 340, width: 25, height: 25, vx: -1.5, minX: 100, maxX: 900}
+                ],
+                goal: {x: 750, y: 320, width: 40, height: 50}
+            },
+            {
+                platforms: [
+                    {x: 0, y: 370, width: 800, height: 30},
+                    {x: 150, y: 320, width: 80, height: 20},
+                    {x: 300, y: 270, width: 80, height: 20},
+                    {x: 450, y: 220, width: 80, height: 20},
+                    {x: 600, y: 170, width: 80, height: 20},
+                    {x: 700, y: 300, width: 100, height: 20}
+                ],
+                coins: [
+                    {x: 180, y: 290, collected: false},
+                    {x: 330, y: 240, collected: false},
+                    {x: 480, y: 190, collected: false},
+                    {x: 630, y: 140, collected: false},
+                    {x: 730, y: 270, collected: false}
+                ],
+                enemies: [
+                    {x: 250, y: 340, width: 25, height: 25, vx: 1.5, minX: 200, maxX: 350},
+                    {x: 400, y: 245, width: 25, height: 25, vx: -2, minX: 200, maxX: 530},
+                    {x: 720, y: 275, width: 25, height: 25, vx: 1, minX: 700, maxX: 780}
+                ],
+                goal: {x: 750, y: 250, width: 40, height: 50}
+            },
+            {
+                platforms: [
+                    {x: 0, y: 370, width: 100, height: 30},
+                    {x: 150, y: 340, width: 60, height: 20},
+                    {x: 250, y: 310, width: 60, height: 20},
+                    {x: 350, y: 280, width: 60, height: 20},
+                    {x: 450, y: 250, width: 60, height: 20},
+                    {x: 550, y: 220, width: 60, height: 20},
+                    {x: 650, y: 190, width: 60, height: 20},
+                    {x: 720, y: 370, width: 80, height: 30}
+                ],
+                coins: [
+                    {x: 180, y: 310, collected: false},
+                    {x: 280, y: 280, collected: false},
+                    {x: 380, y: 250, collected: false},
+                    {x: 480, y: 220, collected: false},
+                    {x: 680, y: 160, collected: false}
+                ],
+                enemies: [
+                    {x: 120, y: 340, width: 25, height: 25, vx: 2, minX: 100, maxX: 500},
+                    {x: 370, y: 255, width: 25, height: 25, vx: -1, minX: 150, maxX: 650},
+                    {x: 730, y: 340, width: 25, height: 25, vx: 1.5, minX: 720, maxX: 780}
+                ],
+                goal: {x: 750, y: 320, width: 40, height: 50}
+            },
+            {
+                platforms: [
+                    {x: 0, y: 370, width: 80, height: 30},
+                    {x: 120, y: 330, width: 40, height: 20},
+                    {x: 200, y: 290, width: 40, height: 20},
+                    {x: 280, y: 250, width: 40, height: 20},
+                    {x: 360, y: 210, width: 40, height: 20},
+                    {x: 440, y: 170, width: 40, height: 20},
+                    {x: 520, y: 210, width: 40, height: 20},
+                    {x: 600, y: 250, width: 40, height: 20},
+                    {x: 680, y: 290, width: 40, height: 20},
+                    {x: 720, y: 370, width: 80, height: 30}
+                ],
+                coins: [
+                    {x: 140, y: 300, collected: false},
+                    {x: 300, y: 220, collected: false},
+                    {x: 460, y: 140, collected: false},
+                    {x: 620, y: 220, collected: false},
+                    {x: 700, y: 260, collected: false}
+                ],
+                enemies: [
+                    {x: 100, y: 340, width: 25, height: 25, vx: 1, minX: 80, maxX: 150},
+                    {x: 250, y: 265, width: 25, height: 25, vx: -2, minX: 200, maxX: 320},
+                    {x: 570, y: 225, width: 25, height: 25, vx: 1.5, minX: 520, maxX: 640},
+                    {x: 730, y: 340, width: 25, height: 25, vx: -1, minX: 720, maxX: 780}
+                ],
+                goal: {x: 750, y: 320, width: 40, height: 50}
+            },
+            {
+                platforms: [
+                    {x: 0, y: 370, width: 60, height: 30},
+                    {x: 100, y: 350, width: 30, height: 20},
+                    {x: 170, y: 320, width: 30, height: 20},
+                    {x: 240, y: 290, width: 30, height: 20},
+                    {x: 310, y: 260, width: 30, height: 20},
+                    {x: 380, y: 230, width: 30, height: 20},
+                    {x: 450, y: 200, width: 30, height: 20},
+                    {x: 520, y: 170, width: 30, height: 20},
+                    {x: 590, y: 200, width: 30, height: 20},
+                    {x: 660, y: 230, width: 30, height: 20},
+                    {x: 730, y: 260, width: 30, height: 20},
+                    {x: 740, y: 370, width: 60, height: 30}
+                ],
+                coins: [
+                    {x: 200, y: 290, collected: false},
+                    {x: 340, y: 230, collected: false},
+                    {x: 540, y: 140, collected: false},
+                    {x: 690, y: 200, collected: false},
+                    {x: 750, y: 230, collected: false}
+                ],
+                enemies: [
+                    {x: 130, y: 325, width: 25, height: 25, vx: 1.5, minX: 100, maxX: 200},
+                    {x: 270, y: 265, width: 25, height: 25, vx: -1, minX: 240, maxX: 340},
+                    {x: 480, y: 175, width: 25, height: 25, vx: 2, minX: 450, maxX: 550},
+                    {x: 620, y: 205, width: 25, height: 25, vx: -1.5, minX: 590, maxX: 690},
+                    {x: 750, y: 340, width: 25, height: 25, vx: 1, minX: 740, maxX: 780}
+                ],
+                goal: {x: 770, y: 320, width: 30, height: 50}
+            }
+        ];
+        
+        let currentLevel = levels[0];
+        
+        // Billentyűzet kezelés
+        const keys = {};
+        
+        document.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+            keys[e.code.toLowerCase()] = true;
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+            keys[e.code.toLowerCase()] = false;
+        });
+        
+        // Játékos mozgás
+        function updatePlayer() {
+            if (!gameState.gameRunning) return;
+            
+            // Vízszintes mozgás - smooth acceleration
+            if (keys['a'] || keys['arrowleft'] || keys['keya']) {
+                player.vx = Math.max(player.vx - 0.5, -player.maxSpeed);
+                player.direction = -1;
+            } else if (keys['d'] || keys['arrowright'] || keys['keyd']) {
+                player.vx = Math.min(player.vx + 0.5, player.maxSpeed);
+                player.direction = 1;
+            } else {
+                // Smooth deceleration
+                if (player.vx > 0) {
+                    player.vx = Math.max(0, player.vx - 0.3);
+                } else if (player.vx < 0) {
+                    player.vx = Math.min(0, player.vx + 0.3);
+                }
+            }
+            
+            // Jump cooldown
+            if (player.jumpCooldown > 0) {
+                player.jumpCooldown--;
+            }
+            
+            // Ugrás - csak space billentyűvel és cooldown-nal
+            if ((keys[' '] || keys['space'] || keys[' ']) && player.onGround && player.canJump && player.jumpCooldown === 0) {
+                player.vy = -player.jumpPower;
+                player.onGround = false;
+                player.canJump = false;
+                player.jumpCooldown = 15;
+            }
+            
+            // Reset jump amikor földön vagyunk
+            if (player.onGround && !keys[' '] && !keys['space']) {
+                player.canJump = true;
+            }
+            
+            // Gravitáció
+            player.vy += 0.6;
+            
+            // Pozíció frissítés
+            player.x += player.vx;
+            player.y += player.vy;
+            
+            // Pálya határai
+            if (player.x < 0) player.x = 0;
+            if (player.x > canvas.width - player.width) player.x = canvas.width - player.width;
+            
+            // Halál ha leesik
+            if (player.y > canvas.height) {
+                playerDie();
+            }
+        }
+        
+        // Platform ütközés
+        function checkPlatformCollisions() {
+            player.onGround = false;
+            
+            for (let platform of currentLevel.platforms) {
+                if (player.x < platform.x + platform.width &&
+                    player.x + player.width > platform.x &&
+                    player.y < platform.y + platform.height &&
+                    player.y + player.height > platform.y) {
+                    
+                    // Felülről érkezik
+                    if (player.vy > 0 && player.y < platform.y) {
+                        player.y = platform.y - player.height;
+                        player.vy = 0;
+                        player.onGround = true;
+                    }
+                    // Alulról érkezik
+                    else if (player.vy < 0 && player.y > platform.y) {
+                        player.y = platform.y + platform.height;
+                        player.vy = 0;
+                    }
+                    // Oldalról érkezik
+                    else {
+                        if (player.x < platform.x) {
+                            player.x = platform.x - player.width;
+                        } else {
+                            player.x = platform.x + platform.width;
+                        }
+                        player.vx = 0;
+                    }
+                }
+            }
+        }
+        
+        // Érme gyűjtés
+        function checkCoinCollection() {
+            for (let coin of currentLevel.coins) {
+                if (!coin.collected &&
+                    player.x < coin.x + 20 &&
+                    player.x + player.width > coin.x &&
+                    player.y < coin.y + 20 &&
+                    player.y + player.height > coin.y) {
+                    
+                    coin.collected = true;
+                    gameState.coins++;
+                    updateUI();
+                }
+            }
+        }
+        
+        // Ellenség mozgás és ütközés
+        function updateEnemies() {
+            for (let enemy of currentLevel.enemies) {
+                enemy.x += enemy.vx;
+                
+                // Határok ellenőrzése
+                if (enemy.x <= enemy.minX || enemy.x >= enemy.maxX) {
+                    enemy.vx = -enemy.vx;
+                }
+                
+                // Játékos ütközés
+                if (player.x < enemy.x + enemy.width &&
+                    player.x + player.width > enemy.x &&
+                    player.y < enemy.y + enemy.height &&
+                    player.y + player.height > enemy.y) {
+                    
+                    playerDie();
+                }
+            }
+        }
+        
+        // Cél ellenőrzés
+        function checkGoal() {
+            const goal = currentLevel.goal;
+            if (player.x < goal.x + goal.width &&
+                player.x + player.width > goal.x &&
+                player.y < goal.y + goal.height &&
+                player.y + player.height > goal.y) {
+                
+                if (gameState.coins >= gameState.coinsNeeded) {
+                    if (gameState.level >= 5) {
+                        gameComplete();
+                    } else {
+                        levelComplete();
+                    }
+                }
+            }
+        }
+        
+        // Játékos halála
+        function playerDie() {
+            gameState.lives--;
+            updateUI();
+            
+            if (gameState.lives <= 0) {
+                gameOver();
+            } else {
+                resetPlayerPosition();
+            }
+        }
+        
+        // Játékos pozíció visszaállítás
+        function resetPlayerPosition() {
+            player.x = 50;
+            player.y = 265;
+            player.vx = 0;
+            player.vy = 0;
+            player.jumpCooldown = 0;
+            player.canJump = true;
+        }
+        
+        // Szint befejezése
+        function levelComplete() {
+            gameState.gameRunning = false;
+            document.getElementById('levelComplete').style.display = 'block';
+        }
+        
+        // Játék befejezése
+        function gameComplete() {
+            gameState.gameRunning = false;
+            document.getElementById('gameComplete').style.display = 'block';
+        }
+        
+        // Játék vége
+        function gameOver() {
+            gameState.gameRunning = false;
+            document.getElementById('gameOver').style.display = 'block';
+        }
+        
+        // Következő szint
+        function nextLevel() {
+            gameState.level++;
+            gameState.coins = 0;
+            currentLevel = levels[gameState.level - 1];
+            resetPlayerPosition();
+            gameState.gameRunning = true;
+            document.getElementById('levelComplete').style.display = 'none';
+            updateUI();
+        }
+        
+        // Újrakezd
+        function restartGame() {
+            gameState.level = 1;
+            gameState.coins = 0;
+            gameState.lives = 3;
+            currentLevel = levels[0];
+            
+            // Érmék visszaállítása
+            for (let level of levels) {
+                for (let coin of level.coins) {
+                    coin.collected = false;
+                }
+            }
+            
+            resetPlayerPosition();
+            gameState.gameRunning = true;
+            document.getElementById('gameOver').style.display = 'none';
+            document.getElementById('levelComplete').style.display = 'none';
+            document.getElementById('gameComplete').style.display = 'none';
+            updateUI();
+        }
+        
+        // UI frissítés
+        function updateUI() {
+            document.getElementById('level').textContent = gameState.level;
+            document.getElementById('coins').textContent = gameState.coins;
+            document.getElementById('lives').textContent = gameState.lives;
+        }
+        
+        // Emberi karakter rajzolása
+        function drawPlayer() {
+            const centerX = player.x + player.width / 2;
+            const bottomY = player.y + player.height;
+            
+            // Test (törzs)
+            ctx.fillStyle = '#4CAF50';
+            ctx.fillRect(player.x + 6, player.y + 8, 8, 15);
+            
+            // Fej
+            ctx.fillStyle = '#FFDBAC';
+            ctx.beginPath();
+            ctx.arc(centerX, player.y + 6, 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Szemek
+            ctx.fillStyle = '#000';
+            ctx.fillRect(centerX - 2, player.y + 4, 1, 1);
+            ctx.fillRect(centerX + 1, player.y + 4, 1, 1);
+            
+            // Karok
+            ctx.fillStyle = '#FFDBAC';
+            ctx.fillRect(player.x + 2, player.y + 10, 3, 8);
+            ctx.fillRect(player.x + 15, player.y + 10, 3, 8);
+            
+            // Lábak
+            ctx.fillStyle = '#2196F3';
+            ctx.fillRect(player.x + 6, player.y + 23, 3, 12);
+            ctx.fillRect(player.x + 11, player.y + 23, 3, 12);
+            
+            // Cipők
+            ctx.fillStyle = '#795548';
+            ctx.fillRect(player.x + 5, player.y + 33, 5, 3);
+            ctx.fillRect(player.x + 10, player.y + 33, 5, 3);
+        }
+        
+        // Ellenség rajzolása (robotok)
+        function drawEnemy(enemy) {
+            // Robot test
+            ctx.fillStyle = '#FF4444';
+            ctx.fillRect(enemy.x + 3, enemy.y + 5, 19, 15);
+            
+            // Robot fej
+            ctx.fillStyle = '#CC3333';
+            ctx.fillRect(enemy.x + 6, enemy.y, 13, 8);
+            
+            // Szemek (LED-ek)
+            ctx.fillStyle = '#FF0000';
+            ctx.fillRect(enemy.x + 8, enemy.y + 2, 2, 2);
+            ctx.fillRect(enemy.x + 15, enemy.y + 2, 2, 2);
+            
+            // Antenna
+            ctx.fillStyle = '#666';
+            ctx.fillRect(enemy.x + 12, enemy.y - 3, 1, 4);
+            ctx.fillRect(enemy.x + 11, enemy.y - 4, 3, 1);
+            
+            // Lábak
+            ctx.fillStyle = '#AA2222';
+            ctx.fillRect(enemy.x + 6, enemy.y + 20, 4, 5);
+            ctx.fillRect(enemy.x + 15, enemy.y + 20, 4, 5);
+            
+            // Karok
+            ctx.fillStyle = '#CC3333';
+            ctx.fillRect(enemy.x, enemy.y + 8, 4, 6);
+            ctx.fillRect(enemy.x + 21, enemy.y + 8, 4, 6);
+        }
+        
+        // Rajzolás
+        function draw() {
+            // Háttér
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Platformok
+            ctx.fillStyle = '#8B4513';
+            for (let platform of currentLevel.platforms) {
+                ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+            }
+            
+            // Érmék
+            ctx.fillStyle = '#FFD700';
+            for (let coin of currentLevel.coins) {
+                if (!coin.collected) {
+                    ctx.beginPath();
+                    ctx.arc(coin.x + 10, coin.y + 10, 10, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            
+            // Ellenségek
+            for (let enemy of currentLevel.enemies) {
+                drawEnemy(enemy);
+            }
+            
+            // Játékos
+            drawPlayer();
+            
+            // Cél
+            ctx.fillStyle = '#00FF00';
+            const goal = currentLevel.goal;
+            ctx.fillRect(goal.x, goal.y, goal.width, goal.height);
+            
+            // Cél jelzés
+            if (gameState.coins >= gameState.coinsNeeded) {
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = '12px Arial';
+                ctx.fillText('CÉL!', goal.x + 5, goal.y - 5);
+            } else {
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = '10px Arial';
+                ctx.fillText('Gyűjts érméket!', goal.x - 20, goal.y - 5);
+            }
+        }
+        
+        // Fő játék ciklus
+        function gameLoop() {
+            updatePlayer();
+            checkPlatformCollisions();
+            checkCoinCollection();
+            updateEnemies();
+            checkGoal();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Játék indítás
+        updateUI();
+        gameLoop();
+    </script>
+</body>
+</html>
